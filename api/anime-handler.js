@@ -1,4 +1,4 @@
-import { json, preflight, errorMessage } from "../lib/http.js";
+import { json, preflight, errorMessage, responseHeaders } from "../lib/http.js";
 import { proxyAnimePath, resolveAnimeEpisode } from "../lib/anime.js";
 import { searchTmdb } from "../lib/tmdb.js";
 
@@ -6,6 +6,7 @@ const ALLOWED_PATHS = [
   /^latest-updated$/,
   /^resolve$/,
   /^fallback$/,
+  /^stream(?:\.m3u8)?$/,
   /^anime\/search$/,
   /^anime\/detail\/[a-zA-Z0-9_-]+$/,
   /^anime\/list\/[a-zA-Z0-9_-]+$/,
@@ -18,6 +19,71 @@ const ALLOWED_PATHS = [
 function animeSugeUnavailable(error) {
   const message = errorMessage(error);
   return /returned HTTP (?:403|404|410|451)\b|episode was not found|did not return a playable|no playable AnimeSuge server|no playable stream URL|servers could not resolve a stream/i.test(message);
+}
+
+function validateStreamUrl(value, baseUrl) {
+  const streamUrl = new URL(value, baseUrl);
+  const host = streamUrl.hostname.toLowerCase();
+  const trustedHost = host === "shiora.top" || host.endsWith(".shiora.top") || host === "megaplay.buzz" || host.endsWith(".megaplay.buzz");
+  if (streamUrl.protocol !== "https:" || !trustedHost) throw new Error("Unsupported AnimeSuge stream host");
+  return streamUrl;
+}
+
+function streamProxyUrl(request, streamUrl) {
+  const proxy = new URL("/api/anime/stream.m3u8", request.url);
+  proxy.searchParams.set("url", streamUrl);
+  return proxy.toString();
+}
+
+async function proxyAnimeStream(request, rawUrl) {
+  let source;
+  try { source = validateStreamUrl(rawUrl); }
+  catch (error) { return json(request, { error: errorMessage(error) }, 400); }
+
+  const headers = new Headers({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Referer": "https://megaplay.buzz/",
+    "Origin": "https://megaplay.buzz",
+  });
+  const range = request.headers.get("range");
+  if (range) headers.set("Range", range);
+
+  let upstream;
+  let currentUrl = source;
+  try {
+    for (let redirectCount = 0; redirectCount <= 3; redirectCount += 1) {
+      upstream = await fetch(currentUrl, { headers, redirect: "manual" });
+      if (![301, 302, 303, 307, 308].includes(upstream.status)) break;
+      const location = upstream.headers.get("location");
+      if (!location || redirectCount === 3) break;
+      currentUrl = validateStreamUrl(location, currentUrl);
+    }
+  } catch (error) { return json(request, { error: "Could not reach the AnimeSuge stream host", details: errorMessage(error) }, 502); }
+  if (!upstream.ok) return json(request, { error: "AnimeSuge stream host denied the request", details: `Upstream returned HTTP ${upstream.status}` }, upstream.status === 403 ? 403 : 502);
+
+  const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+  if (/mpegurl|\.m3u8(?:$|\?)/i.test(contentType) || /\.m3u8$/i.test(currentUrl.pathname)) {
+    let playlist = await upstream.text();
+    playlist = playlist.split(/\r?\n/).map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return line;
+      if (trimmed.startsWith("#")) {
+        return line.replace(/URI="([^"]+)"/g, (_match, uri) => `URI="${streamProxyUrl(request, validateStreamUrl(uri, currentUrl).toString())}"`);
+      }
+      return streamProxyUrl(request, validateStreamUrl(trimmed, currentUrl).toString());
+    }).join("\n");
+    return new Response(playlist, {
+      status: upstream.status,
+      headers: responseHeaders(request, { "Content-Type": "application/vnd.apple.mpegurl", "Cache-Control": "no-store" }),
+    });
+  }
+
+  const responseHeadersOut = responseHeaders(request, { "Cache-Control": "no-store" });
+  for (const name of ["content-type", "content-range", "accept-ranges"]) {
+    const value = upstream.headers.get(name);
+    if (value) responseHeadersOut[name] = value;
+  }
+  return new Response(upstream.body, { status: upstream.status, headers: responseHeadersOut });
 }
 
 export default {
@@ -45,11 +111,19 @@ export default {
           : item.playback.url;
         return json(request, { ...item, source: "tmdb-vidlink-fallback", playback: { provider: "vidlink", mode: "embed", url: playerUrl } });
       }
+      if (path === "stream") {
+        const streamUrl = searchParams.get("url");
+        if (!streamUrl) return json(request, { error: "url is required" }, 400);
+        return proxyAnimeStream(request, streamUrl);
+      }
       if (path === "resolve") {
         const animeId = (searchParams.get("animeId") || "").trim();
         const episode = Number.parseInt(searchParams.get("episode") || "", 10);
         if (!animeId || !Number.isInteger(episode) || episode < 1) return json(request, { error: "animeId and a positive episode number are required" }, 400);
-        try { return json(request, { ...(await resolveAnimeEpisode(animeId, episode)), provider: "anisuge" }); }
+        try {
+          const resolved = await resolveAnimeEpisode(animeId, episode);
+          return json(request, { ...resolved, url: streamProxyUrl(request, resolved.url), provider: "anisuge" });
+        }
         catch (error) {
           const query = (searchParams.get("title") || "").trim();
           if (query && animeSugeUnavailable(error)) {
