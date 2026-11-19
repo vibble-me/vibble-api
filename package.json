@@ -1,0 +1,17 @@
+{
+  "name": "vibble-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Vibble catalog and search API for Blogger, TMDB, AnimeSuge, and Vidlink.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "devDependencies": {
+    "vercel": "^66.2.0"
+  }
+}
