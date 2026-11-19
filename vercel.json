@@ -2,5 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/*.js": { "maxDuration": 15 }
-  }
+  },
+  "rewrites": [
+    { "source": "/api/anime/:path*", "destination": "/api/anime-handler?path=:path*" }
+  ]
 }
