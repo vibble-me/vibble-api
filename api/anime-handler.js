@@ -29,6 +29,8 @@ function validateStreamUrl(value, baseUrl) {
   const host = streamUrl.hostname.toLowerCase();
   const trustedHost = host === "shiora.top" || host.endsWith(".shiora.top")
     || host === "megaplay.buzz" || host.endsWith(".megaplay.buzz")
+    || host === "nexabloom.top" || host.endsWith(".nexabloom.top")
+    || host === "vidtube.site" || host.endsWith(".vidtube.site")
     || host === "tiktokcdn.com" || host.endsWith(".tiktokcdn.com");
   if (streamUrl.protocol !== "https:" || !trustedHost) {
     throw new Error(`Unsupported AnimeSuge stream asset: ${streamUrl.protocol}//${host || "(no host)"}`);
