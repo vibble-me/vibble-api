@@ -58,7 +58,10 @@ async function proxyAnimeStream(request, rawUrl) {
       if (!location || redirectCount === 3) break;
       currentUrl = validateStreamUrl(location, currentUrl);
     }
-  } catch (error) { return json(request, { error: "Could not reach the AnimeSuge stream host", details: errorMessage(error) }, 502); }
+  } catch (error) {
+    console.error("AnimeSuge stream proxy fetch failed:", errorMessage(error));
+    return json(request, { error: "Could not reach the AnimeSuge stream host", details: errorMessage(error) }, 502);
+  }
   if (!upstream.ok) return json(request, { error: "AnimeSuge stream host denied the request", details: `Upstream returned HTTP ${upstream.status}` }, upstream.status === 403 ? 403 : 502);
 
   const contentType = upstream.headers.get("content-type") || "application/octet-stream";
@@ -111,7 +114,7 @@ export default {
           : item.playback.url;
         return json(request, { ...item, source: "tmdb-vidlink-fallback", playback: { provider: "vidlink", mode: "embed", url: playerUrl } });
       }
-      if (path === "stream") {
+      if (path === "stream" || path === "stream.m3u8") {
         const streamUrl = searchParams.get("url");
         if (!streamUrl) return json(request, { error: "url is required" }, 400);
         return proxyAnimeStream(request, streamUrl);
