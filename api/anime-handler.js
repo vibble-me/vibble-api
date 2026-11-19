@@ -18,7 +18,11 @@ const ALLOWED_PATHS = [
 
 function animeSugeUnavailable(error) {
   const message = errorMessage(error);
-  return /returned HTTP (?:403|404|410|451)\b|episode was not found|did not return a playable|no playable AnimeSuge server|no playable stream URL|servers could not resolve a stream/i.test(message);
+  return /returned HTTP (?:403|404|410|451)\b|episode was not found|did not return (?:any )?playable|no playable AnimeSuge server|no playable stream URL|servers could not resolve a stream/i.test(message);
+}
+
+function vidlinkAnimeUrl(malId, episode, type = "dub") {
+  return `https://vidlink.pro/anime/${encodeURIComponent(malId)}/${episode}/${type === "sub" ? "sub" : "dub"}?fallback=true`;
 }
 
 function validateStreamUrl(value, baseUrl) {
@@ -85,6 +89,9 @@ async function proxyAnimeStream(request, rawUrl) {
   if (!upstream.ok) return json(request, { error: "AnimeSuge stream host denied the request", details: `Upstream returned HTTP ${upstream.status}` }, upstream.status === 403 ? 403 : 502);
 
   const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+  if (/^image\//i.test(contentType)) {
+    return json(request, { error: "AnimeSuge server returned an image instead of a media segment", details: contentType }, 415);
+  }
   if (/mpegurl|\.m3u8(?:$|\?)/i.test(contentType) || /\.m3u8$/i.test(currentUrl.pathname)) {
     const playlist = rewriteHlsPlaylist(await upstream.text(), request, currentUrl);
     return new Response(playlist, {
@@ -117,10 +124,16 @@ export default {
       if (path === "fallback") {
         const query = (searchParams.get("query") || "").trim();
         if (!query) return json(request, { error: "query is required" }, 400);
+        const episode = Math.max(1, Number.parseInt(searchParams.get("episode") || "1", 10) || 1);
+        const malId = (searchParams.get("malId") || "").trim();
+        const animeType = searchParams.get("type") === "sub" ? "sub" : "dub";
+        if (/^\d+$/.test(malId)) {
+          const playerUrl = vidlinkAnimeUrl(malId, episode, animeType);
+          return json(request, { title: query, source: "vidlink-anime-fallback", playback: { provider: "vidlink", mode: "embed", url: playerUrl } });
+        }
         const items = await searchTmdb("anime", query);
         const item = items[0];
         if (!item) return json(request, { error: "No backup match for this anime" }, 404);
-        const episode = Math.max(1, Number.parseInt(searchParams.get("episode") || "1", 10) || 1);
         const playerUrl = item.type === "tv"
           ? `https://vidlink.pro/tv/${encodeURIComponent(item.tmdbId)}/1/${episode}`
           : item.playback.url;
@@ -137,10 +150,19 @@ export default {
         if (!animeId || !Number.isInteger(episode) || episode < 1) return json(request, { error: "animeId and a positive episode number are required" }, 400);
         try {
           const resolved = await resolveAnimeEpisode(animeId, episode);
-          return json(request, { ...resolved, url: streamProxyUrl(request, resolved.url), provider: "anisuge" });
+          const streams = (resolved.streams || [{ server: resolved.server, type: "", url: resolved.url }]).map((stream) => ({
+            ...stream,
+            url: streamProxyUrl(request, stream.url),
+          }));
+          return json(request, { ...resolved, url: streams[0]?.url || "", streams, provider: "anisuge" });
         }
         catch (error) {
           const query = (searchParams.get("title") || "").trim();
+          const malId = (searchParams.get("malId") || "").trim();
+          const animeType = searchParams.get("type") === "sub" ? "sub" : "dub";
+          if (query && /^\d+$/.test(malId) && animeSugeUnavailable(error)) {
+            return json(request, { episode, provider: "vidlink", fallback: true, title: query, url: vidlinkAnimeUrl(malId, episode, animeType) });
+          }
           if (query && animeSugeUnavailable(error)) {
             const matches = await searchTmdb("anime", query);
             const item = matches[0];
