@@ -117,7 +117,7 @@ export default {
       if (path === "stream" || path === "stream.m3u8") {
         const streamUrl = searchParams.get("url");
         if (!streamUrl) return json(request, { error: "url is required" }, 400);
-        return proxyAnimeStream(request, streamUrl);
+        return await proxyAnimeStream(request, streamUrl);
       }
       if (path === "resolve") {
         const animeId = (searchParams.get("animeId") || "").trim();
