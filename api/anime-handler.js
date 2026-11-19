@@ -148,7 +148,7 @@ export default {
           const resolved = await resolveAnimeEpisode(animeId, episode);
           const streams = (resolved.streams || [{ server: resolved.server, type: "", url: resolved.url }]).map((stream) => ({
             ...stream,
-            url: streamProxyUrl(request, stream.url),
+            url: stream.mode === "embed" ? stream.url : streamProxyUrl(request, stream.url),
           }));
           return json(request, { ...resolved, url: streams[0]?.url || "", streams, provider: "anisuge" });
         }
