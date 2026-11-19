@@ -15,6 +15,11 @@ const ALLOWED_PATHS = [
   /^server\/sources$/,
 ];
 
+function animeSugeUnavailable(error) {
+  const message = errorMessage(error);
+  return /returned HTTP (?:403|404|410|451)\b|episode was not found|did not return a playable|no playable AnimeSuge server|no playable stream URL|servers could not resolve a stream/i.test(message);
+}
+
 export default {
   async fetch(request) {
     if (request.method === "OPTIONS") return preflight(request);
@@ -44,7 +49,7 @@ export default {
         try { return json(request, { ...(await resolveAnimeEpisode(animeId, episode)), provider: "anisuge" }); }
         catch (error) {
           const query = (url.searchParams.get("title") || "").trim();
-          if (query) {
+          if (query && animeSugeUnavailable(error)) {
             const matches = await searchTmdb("anime", query);
             const item = matches[0];
             if (item) {
