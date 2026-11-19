@@ -30,6 +30,8 @@ function validateStreamUrl(value, baseUrl) {
   const trustedHost = host === "shiora.top" || host.endsWith(".shiora.top")
     || host === "megaplay.buzz" || host.endsWith(".megaplay.buzz")
     || host === "nexabloom.top" || host.endsWith(".nexabloom.top")
+    || host === "imgnex.top" || host.endsWith(".imgnex.top")
+    || host === "hiddenvertex.space" || host.endsWith(".hiddenvertex.space")
     || host === "vidtube.site" || host.endsWith(".vidtube.site")
     || host === "tiktokcdn.com" || host.endsWith(".tiktokcdn.com");
   if (streamUrl.protocol !== "https:" || !trustedHost) {
