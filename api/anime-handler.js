@@ -37,6 +37,40 @@ function streamProxyUrl(request, streamUrl) {
   return proxy.toString();
 }
 
+function isAdTrackingHost(host) {
+  return /(?:^|\.)tiktokcdn\.com$/i.test(host) && /(?:^|[-.])ad(?:[-.]|$)/i.test(host);
+}
+
+function rewriteHlsPlaylist(playlist, request, baseUrl) {
+  const output = [];
+  let pendingSegmentStart = null;
+  for (const line of playlist.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) { output.push(line); continue; }
+    if (trimmed.startsWith("#")) {
+      const uris = [...line.matchAll(/URI="([^"]+)"/g)].map((match) => match[1]);
+      const hasAdUri = uris.some((uri) => {
+        try { return isAdTrackingHost(new URL(uri, baseUrl).hostname); }
+        catch { return false; }
+      });
+      if (hasAdUri) continue;
+      if (trimmed.startsWith("#EXTINF:")) pendingSegmentStart = output.length;
+      output.push(line.replace(/URI="([^"]+)"/g, (_match, uri) => `URI="${streamProxyUrl(request, validateStreamUrl(uri, baseUrl).toString())}"`));
+      continue;
+    }
+
+    const asset = validateStreamUrl(trimmed, baseUrl);
+    if (isAdTrackingHost(asset.hostname)) {
+      if (pendingSegmentStart !== null) output.splice(pendingSegmentStart);
+      pendingSegmentStart = null;
+      continue;
+    }
+    output.push(streamProxyUrl(request, asset.toString()));
+    pendingSegmentStart = null;
+  }
+  return output.join("\n");
+}
+
 async function proxyAnimeStream(request, rawUrl) {
   let source;
   try { source = validateStreamUrl(rawUrl); }
@@ -68,15 +102,7 @@ async function proxyAnimeStream(request, rawUrl) {
 
   const contentType = upstream.headers.get("content-type") || "application/octet-stream";
   if (/mpegurl|\.m3u8(?:$|\?)/i.test(contentType) || /\.m3u8$/i.test(currentUrl.pathname)) {
-    let playlist = await upstream.text();
-    playlist = playlist.split(/\r?\n/).map((line) => {
-      const trimmed = line.trim();
-      if (!trimmed) return line;
-      if (trimmed.startsWith("#")) {
-        return line.replace(/URI="([^"]+)"/g, (_match, uri) => `URI="${streamProxyUrl(request, validateStreamUrl(uri, currentUrl).toString())}"`);
-      }
-      return streamProxyUrl(request, validateStreamUrl(trimmed, currentUrl).toString());
-    }).join("\n");
+    const playlist = rewriteHlsPlaylist(await upstream.text(), request, currentUrl);
     return new Response(playlist, {
       status: upstream.status,
       headers: responseHeaders(request, { "Content-Type": "application/vnd.apple.mpegurl", "Cache-Control": "no-store" }),
