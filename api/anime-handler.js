@@ -59,12 +59,13 @@ function rewriteHlsPlaylist(playlist, request, baseUrl) {
       continue;
     }
 
-    const asset = validateStreamUrl(trimmed, baseUrl);
-    if (isAdTrackingHost(asset.hostname)) {
+    const candidate = new URL(trimmed, baseUrl);
+    if (isAdTrackingHost(candidate.hostname)) {
       if (pendingSegmentStart !== null) output.splice(pendingSegmentStart);
       pendingSegmentStart = null;
       continue;
     }
+    const asset = validateStreamUrl(candidate.toString());
     output.push(streamProxyUrl(request, asset.toString()));
     pendingSegmentStart = null;
   }
