@@ -32,6 +32,8 @@ function validateStreamUrl(value, baseUrl) {
     || host === "nexabloom.top" || host.endsWith(".nexabloom.top")
     || host === "imgnex.top" || host.endsWith(".imgnex.top")
     || host === "hiddenvertex.space" || host.endsWith(".hiddenvertex.space")
+    || host === "midnightvale.top" || host.endsWith(".midnightvale.top")
+    || host === "akirax.buzz" || host.endsWith(".akirax.buzz")
     || host === "vidtube.site" || host.endsWith(".vidtube.site")
     || host === "tiktokcdn.com" || host.endsWith(".tiktokcdn.com");
   if (streamUrl.protocol !== "https:" || !trustedHost) {
