@@ -24,7 +24,9 @@ function animeSugeUnavailable(error) {
 function validateStreamUrl(value, baseUrl) {
   const streamUrl = new URL(value, baseUrl);
   const host = streamUrl.hostname.toLowerCase();
-  const trustedHost = host === "shiora.top" || host.endsWith(".shiora.top") || host === "megaplay.buzz" || host.endsWith(".megaplay.buzz");
+  const trustedHost = host === "shiora.top" || host.endsWith(".shiora.top")
+    || host === "megaplay.buzz" || host.endsWith(".megaplay.buzz")
+    || host === "tiktokcdn.com" || host.endsWith(".tiktokcdn.com");
   if (streamUrl.protocol !== "https:" || !trustedHost) {
     throw new Error(`Unsupported AnimeSuge stream asset: ${streamUrl.protocol}//${host || "(no host)"}`);
   }
@@ -37,37 +39,18 @@ function streamProxyUrl(request, streamUrl) {
   return proxy.toString();
 }
 
-function isAdTrackingHost(host) {
-  return /(?:^|\.)tiktokcdn\.com$/i.test(host) && /(?:^|[-.])ad(?:[-.]|$)/i.test(host);
-}
-
 function rewriteHlsPlaylist(playlist, request, baseUrl) {
   const output = [];
-  let pendingSegmentStart = null;
   for (const line of playlist.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed) { output.push(line); continue; }
     if (trimmed.startsWith("#")) {
-      const uris = [...line.matchAll(/URI="([^"]+)"/g)].map((match) => match[1]);
-      const hasAdUri = uris.some((uri) => {
-        try { return isAdTrackingHost(new URL(uri, baseUrl).hostname); }
-        catch { return false; }
-      });
-      if (hasAdUri) continue;
-      if (trimmed.startsWith("#EXTINF:")) pendingSegmentStart = output.length;
       output.push(line.replace(/URI="([^"]+)"/g, (_match, uri) => `URI="${streamProxyUrl(request, validateStreamUrl(uri, baseUrl).toString())}"`));
       continue;
     }
 
-    const candidate = new URL(trimmed, baseUrl);
-    if (isAdTrackingHost(candidate.hostname)) {
-      if (pendingSegmentStart !== null) output.splice(pendingSegmentStart);
-      pendingSegmentStart = null;
-      continue;
-    }
-    const asset = validateStreamUrl(candidate.toString());
+    const asset = validateStreamUrl(trimmed, baseUrl);
     output.push(streamProxyUrl(request, asset.toString()));
-    pendingSegmentStart = null;
   }
   return output.join("\n");
 }
