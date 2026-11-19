@@ -1,6 +1,5 @@
 import { json, preflight, errorMessage, responseHeaders } from "../lib/http.js";
 import { proxyAnimePath, resolveAnimeEpisode } from "../lib/anime.js";
-import { searchTmdb } from "../lib/tmdb.js";
 
 const ALLOWED_PATHS = [
   /^latest-updated$/,
@@ -123,21 +122,12 @@ export default {
     try {
       if (path === "fallback") {
         const query = (searchParams.get("query") || "").trim();
-        if (!query) return json(request, { error: "query is required" }, 400);
         const episode = Math.max(1, Number.parseInt(searchParams.get("episode") || "1", 10) || 1);
         const malId = (searchParams.get("malId") || "").trim();
         const animeType = searchParams.get("type") === "sub" ? "sub" : "dub";
-        if (/^\d+$/.test(malId)) {
-          const playerUrl = vidlinkAnimeUrl(malId, episode, animeType);
-          return json(request, { title: query, source: "vidlink-anime-fallback", playback: { provider: "vidlink", mode: "embed", url: playerUrl } });
-        }
-        const items = await searchTmdb("anime", query);
-        const item = items[0];
-        if (!item) return json(request, { error: "No backup match for this anime" }, 404);
-        const playerUrl = item.type === "tv"
-          ? `https://vidlink.pro/tv/${encodeURIComponent(item.tmdbId)}/1/${episode}`
-          : item.playback.url;
-        return json(request, { ...item, source: "tmdb-vidlink-fallback", playback: { provider: "vidlink", mode: "embed", url: playerUrl } });
+        if (!/^\d+$/.test(malId)) return json(request, { error: "A MyAnimeList ID is required for the Vidlink Anime backup" }, 400);
+        const playerUrl = vidlinkAnimeUrl(malId, episode, animeType);
+        return json(request, { title: query, source: "vidlink-anime-fallback", playback: { provider: "vidlink", mode: "embed", url: playerUrl } });
       }
       if (path === "stream" || path === "stream.m3u8") {
         const streamUrl = searchParams.get("url");
@@ -162,16 +152,6 @@ export default {
           const animeType = searchParams.get("type") === "sub" ? "sub" : "dub";
           if (query && /^\d+$/.test(malId) && animeSugeUnavailable(error)) {
             return json(request, { episode, provider: "vidlink", fallback: true, title: query, url: vidlinkAnimeUrl(malId, episode, animeType) });
-          }
-          if (query && animeSugeUnavailable(error)) {
-            const matches = await searchTmdb("anime", query);
-            const item = matches[0];
-            if (item) {
-              const playerUrl = item.type === "tv"
-                ? `https://vidlink.pro/tv/${encodeURIComponent(item.tmdbId)}/1/${episode}`
-                : item.playback.url;
-              return json(request, { episode, provider: "vidlink", fallback: true, title: item.title, url: playerUrl });
-            }
           }
           throw error;
         }
