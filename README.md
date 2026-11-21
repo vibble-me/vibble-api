@@ -28,3 +28,12 @@ Catalogue responses contain `{ source, type, count, items }`. Movie and TV items
 Import this standalone `vibble-api` folder as a new Vercel project, set its environment variables, and deploy. Add the resulting production API base to the Blogger theme as `https://<deployment-domain>/api`. Set `CORS_ORIGINS` to the exact Blogspot origin(s) used by the site.
 
 The TMDB secret must be configured in Vercel; it is never included in the theme or API responses. The API uses TMDB IDs for Vidlink movie/TV embeds. Anime playback remains AnimeSuge's separate route flow through `/api/anime/...`.
+
+
+## Telegram bot
+
+The Telegram webhook is available at `POST /api/telegram`. It uses the existing search and catalogue endpoints and requires Upstash Redis for persistent conversation state and media request records.
+
+Configure these Vercel environment variables: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_ADMIN_ID`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `VIBBLE_API_BASE`, `PAYPAL_DONATION_URL`, `REQUEST_DONATION_AMOUNT`, `WHATSAPP_COMMUNITY_URL`, `TELEGRAM_COMMUNITY_URL`, `TELEGRAM_GROUP_URL`, `TELEGRAM_CHANNEL_URL`, and `INSTAGRAM_URL`. `VIBBLE_API_BASE` should be the deployed API origin, for example `https://your-project.vercel.app`; the webhook appends `/api/search` and `/api/catalog`.
+
+After deployment, register the webhook with Telegram using `https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook?url=https://<your-project-domain>/api/telegram&secret_token=<TELEGRAM_WEBHOOK_SECRET>`. Keep the bot token and webhook secret in Vercel environment variables, not in source control.
