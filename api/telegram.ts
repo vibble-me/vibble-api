@@ -129,19 +129,13 @@ export default async function handler(req: any, res: any) {
     }
     const actor = callback?.from || message?.from;
     const actorChatId = callback?.message?.chat.id || message?.chat.id;
+    if (callback && actor && actorChatId && (callback.data === "access:instagram_done" || callback.data === "access:check")) {
+      if (callback.data === "access:instagram_done") await redis(["SET", `vibble:instagram:${actor.id}`, "1"]);
+      await answerCallback(callback.id, callback.data === "access:check" ? "Checking your membership..." : "Instagram follow confirmed");
+      await unlockAccess(actorChatId, actor.id, actor);
+      return res.status(200).json({ ok: true });
+    }
     if (actor && actorChatId && actor.id !== ADMIN_ID && !(await hasAccess(actor.id))) {
-      const accessAction = callback?.data || "";
-      if (accessAction === "access:instagram_done") {
-        await answerCallback(callback!.id, "Instagram follow confirmed");
-        await redis(["SET", `vibble:instagram:${actor.id}`, "1"]);
-        await unlockAccess(actorChatId, actor.id, actor);
-        return res.status(200).json({ ok: true });
-      }
-      if (accessAction === "access:check") {
-        await answerCallback(callback!.id, "Checking your membership...");
-        await unlockAccess(actorChatId, actor.id, actor);
-        return res.status(200).json({ ok: true });
-      }
       if (callback) await answerCallback(callback.id, "Please complete the community steps first");
       if (message) await deleteUserMessage(message);
       await showAccessGate(actorChatId, actor.id);
