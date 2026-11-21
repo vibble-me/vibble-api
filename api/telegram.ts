@@ -35,9 +35,10 @@ async function redis(command: Array<string | number>) {
   return result.result;
 }
 
+async function setChatCommands(chatId: number, active: boolean) { await telegram("setMyCommands", { commands: active ? [{ command: "start", description: "Open Vibble TV menu" }] : [], scope: { type: "chat", chat_id: chatId } }); }
 async function getState(chatId: number) { const value = await redis(["GET", `vibble:state:${chatId}`]); return typeof value === "string" ? value : ""; }
-async function setState(chatId: number, value: string) { await redis(["SET", `vibble:state:${chatId}`, value, "EX", 900]); }
-async function clearState(chatId: number) { await redis(["DEL", `vibble:state:${chatId}`]); }
+async function setState(chatId: number, value: string) { await redis(["SET", `vibble:state:${chatId}`, value, "EX", 900]); await setChatCommands(chatId, false); }
+async function clearState(chatId: number) { await redis(["DEL", `vibble:state:${chatId}`]); await setChatCommands(chatId, true); }
 async function deleteMessage(chatId: number, messageId: number) { try { await telegram("deleteMessage", { chat_id: chatId, message_id: messageId }); } catch {} }
 async function deleteUserMessage(message?: TelegramMessage) { if (message) await deleteMessage(message.chat.id, message.message_id); }
 async function send(chatId: number, text: string, reply_markup?: Record<string, unknown>) {
@@ -49,11 +50,11 @@ async function send(chatId: number, text: string, reply_markup?: Record<string, 
 }
 async function answerCallback(id: string, text = "") { return telegram("answerCallbackQuery", { callback_query_id: id, text }); }
 function escapeHtml(value: string) { return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] || char); }
-function blogSearchUrl(title: string) { const url = new URL("/search", BLOG_URL); url.searchParams.set("q", title); return url.toString(); }
+function blogSearchUrl(title: string, type: string) { const url = new URL("/", BLOG_URL); url.searchParams.set("vibbleSearch", title); url.searchParams.set("vibbleType", type); return url.toString(); }
 function menu() { return { inline_keyboard: [[{ text: "🔎 Find Media", callback_data: "menu:find" }, { text: "🎬 Request Media", callback_data: "menu:request" }], [{ text: "☕ Donate", callback_data: "menu:donate" }, { text: "🛟 Support", callback_data: "menu:support" }], [{ text: "💬 Contact", callback_data: "menu:contact" }], [{ text: "📱 WhatsApp Community", url: WHATSAPP_URL }], [{ text: "✈️ Telegram Group", url: GROUP_URL }, { text: "📢 Channel", url: CHANNEL_URL }], [{ text: "📸 Follow on Instagram", url: INSTAGRAM_URL }]] }; }
 function categoryKeyboard() { return { inline_keyboard: [[{ text: "🍥 Anime", callback_data: "category:anime" }, { text: "🎬 Movies", callback_data: "category:movies" }, { text: "📺 TV Shows", callback_data: "category:tv" }], [{ text: "✖ Cancel", callback_data: "menu:cancel" }]] }; }
 function parseInput(input: string) { const match = input.trim().match(/^-(a|m|t)\s*(.*)$/is); if (!match) return { type: "", title: input.trim() }; return { type: ({ a: "anime", m: "movies", t: "tv" } as Record<string, string>)[match[1].toLowerCase()], title: match[2].trim() }; }
-function mediaMessage(item: MediaItem, type: string) { const title = item.title || item.name || "Untitled"; const url = blogSearchUrl(title); return `🎉 <b>${escapeHtml(title)}</b>${item.year || item.date ? ` (${escapeHtml(item.year || item.date || "")})` : ""}\n\n${type === "anime" ? "🍥 Find this title on Vibble TV:" : "▶️ Find this title on Vibble TV:"}\n<a href="${escapeHtml(url)}">Search Vibble TV</a>`; }
+function mediaMessage(item: MediaItem, type: string) { const title = item.title || item.name || "Untitled"; const url = blogSearchUrl(title, type); return `🎉 <b>${escapeHtml(title)}</b>${item.year || item.date ? ` (${escapeHtml(item.year || item.date || "")})` : ""}\n\n${type === "anime" ? "🍥 Find this title on Vibble TV:" : "▶️ Find this title on Vibble TV:"}\n<a href="${escapeHtml(url)}">Search Vibble TV</a>`; }
 async function searchMedia(base: string, type: string, query: string) { const url = new URL("/api/search", base); url.searchParams.set("type", type); url.searchParams.set("query", query); const response = await fetch(url); if (!response.ok) throw new Error("Media search is temporarily unavailable"); const data = await response.json() as { items?: MediaItem[] }; return data.items || []; }
 async function latestMedia(base: string, type: string) { const url = new URL("/api/catalog", base); url.searchParams.set("type", type); url.searchParams.set("limit", "6"); const response = await fetch(url); if (!response.ok) throw new Error("Latest titles are temporarily unavailable"); const data = await response.json() as { items?: MediaItem[] }; return data.items || []; }
 async function handleFind(chatId: number, base: string, raw: string) {
@@ -63,7 +64,7 @@ async function handleFind(chatId: number, base: string, raw: string) {
     const items = await latestMedia(base, parsed.type);
     if (!items.length) { await clearState(chatId); await send(chatId, "I couldn't find any recent titles right now. Please try again later.", menu()); return; }
     await clearState(chatId);
-    await send(chatId, `✨ <b>Latest ${parsed.type === "anime" ? "Anime" : parsed.type === "movies" ? "Movies" : "TV Shows"}</b>\n\n${items.map((item, index) => `${index + 1}. ${escapeHtml(item.title || item.name || "Untitled")}\n<a href="${escapeHtml(blogSearchUrl(item.title || item.name || ""))}">Find on Vibble TV</a>`).join("\n\n")}`, menu());
+    await send(chatId, `✨ <b>Latest ${parsed.type === "anime" ? "Anime" : parsed.type === "movies" ? "Movies" : "TV Shows"}</b>\n\n${items.map((item, index) => `${index + 1}. ${escapeHtml(item.title || item.name || "Untitled")}\n<a href="${escapeHtml(blogSearchUrl(item.title || item.name || "", parsed.type))}">Find on Vibble TV</a>`).join("\n\n")}`, menu());
     return;
   }
   const items = await searchMedia(base, parsed.type, parsed.title);
@@ -77,7 +78,7 @@ async function handleRequest(chatId: number, user: TelegramUser | undefined, bas
   const items = await searchMedia(base, parsed.type, parsed.title);
   const exact = items.find((item) => (item.title || item.name || "").trim().toLocaleLowerCase() === parsed.title.toLocaleLowerCase());
   await clearState(chatId);
-  if (exact) { await send(chatId, `✅ <b>${escapeHtml(exact.title || exact.name || parsed.title)}</b> is already available!\n\n<a href="${escapeHtml(blogSearchUrl(exact.title || exact.name || parsed.title))}">Find it on Vibble TV</a>`, menu()); return; }
+  if (exact) { await send(chatId, `✅ <b>${escapeHtml(exact.title || exact.name || parsed.title)}</b> is already available!\n\n<a href="${escapeHtml(blogSearchUrl(exact.title || exact.name || parsed.title, parsed.type))}">Find it on Vibble TV</a>`, menu()); return; }
   const requestId = `${Date.now()}-${chatId}`;
   const record = { id: requestId, chatId, userId: user?.id || chatId, username: user?.username || "", name: user?.first_name || "Vibble user", type: parsed.type, title: parsed.title, status: "pending", createdAt: new Date().toISOString() };
   await redis(["SET", `vibble:request:${requestId}`, JSON.stringify(record)]);
@@ -86,7 +87,7 @@ async function handleRequest(chatId: number, user: TelegramUser | undefined, bas
 }
 async function startCommand(chatId: number, user: TelegramUser | undefined) {
   await clearState(chatId);
-  await telegram("setMyCommands", { commands: [{ command: "start", description: "Open Vibble TV menu" }] });
+  await setChatCommands(chatId, true);
   await send(chatId, `💜 <b>Welcome to Vibble TV${user?.first_name ? `, ${escapeHtml(user.first_name)}` : ""}!</b>\n\nYour entertainment, one click away. Discover anime, movies and TV shows, request titles, or get help from our team.\n\n👇 <b>What would you like to do today?</b>`, menu());
 }
 async function handleCommand(message: TelegramMessage, command: string, args: string, base: string) {
@@ -150,7 +151,7 @@ export default async function handler(req: any, res: any) {
           const raw = await redis(["GET", `vibble:request:${requestId}`]);
           if (typeof raw === "string") {
             const record = JSON.parse(raw) as { chatId: number; title: string; type: string; status: string };
-            const deliveredUrl = blogSearchUrl(text);
+            const deliveredUrl = blogSearchUrl(text, record.type);
             await send(record.chatId, `🎉 <b>${escapeHtml(record.title)}</b> is now available!\n\n<a href="${escapeHtml(deliveredUrl)}">Find it on Vibble TV</a>\n\nEnjoy Vibble TV! 💜`, menu());
             await redis(["SET", `vibble:request:${requestId}`, JSON.stringify({ ...record, status: "fulfilled", fulfilledAt: new Date().toISOString(), url: deliveredUrl })]);
             await send(chatId, "✅ The Vibble TV search link has been delivered to the requester.");
