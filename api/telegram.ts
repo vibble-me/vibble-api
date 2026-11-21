@@ -1,7 +1,7 @@
 declare const process: { env: Record<string, string | undefined> };
 
 type TelegramUser = { id: number; username?: string; first_name?: string };
-type TelegramMessage = { message_id: number; chat: { id: number; type: string }; from?: TelegramUser; text?: string };
+type TelegramMessage = { message_id: number; chat: { id: number; type: string }; from?: TelegramUser; text?: string; new_chat_members?: TelegramUser[] };
 type TelegramUpdate = { message?: TelegramMessage; callback_query?: { id: string; from: TelegramUser; data?: string; message?: TelegramMessage } };
 type MediaItem = { title?: string; name?: string; type?: string; url?: string; poster?: string; playback?: { url?: string }; date?: string; year?: string };
 
@@ -54,7 +54,7 @@ async function answerCallback(id: string, text = "") { return telegram("answerCa
 function escapeHtml(value: string) { return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] || char); }
 function blogSearchUrl(title: string, type: string) { const url = new URL("/", BLOG_URL); url.searchParams.set("vibbleSearch", title); url.searchParams.set("vibbleType", type); return url.toString(); }
 function menu() { return { inline_keyboard: [[{ text: "🔎 Find Media", callback_data: "menu:find" }, { text: "🎬 Request Media", callback_data: "menu:request" }], [{ text: "☕ Donate", callback_data: "menu:donate" }, { text: "🛟 Support", callback_data: "menu:support" }], [{ text: "💬 Contact", callback_data: "menu:contact" }], [{ text: "📱 WhatsApp Community", url: WHATSAPP_URL }], [{ text: "✈️ Telegram Group", url: GROUP_URL }, { text: "📢 Channel", url: CHANNEL_URL }], [{ text: "📸 Follow on Instagram", url: INSTAGRAM_URL }]] }; }
-async function isMember(chatId: string, userId: number) { try { const member = await telegram("getChatMember", { chat_id: chatId, user_id: userId }) as { status?: string; is_member?: boolean }; return member.status === "creator" || member.status === "administrator" || member.status === "member" || (member.status === "restricted" && member.is_member === true); } catch { return false; } }
+async function isMember(chatId: string, userId: number) { try { const member = await telegram("getChatMember", { chat_id: chatId, user_id: userId }) as { status?: string; is_member?: boolean }; return member.status === "creator" || member.status === "administrator" || member.status === "member" || (member.status === "restricted" && member.is_member === true); } catch (error) { console.error(`Telegram getChatMember failed for ${chatId} and user ${userId}:`, error); return false; } }
 async function hasInstagramConfirmed(userId: number) { return (await redis(["GET", `vibble:instagram:${userId}`])) === "1"; }
 async function hasAccess(userId: number) { return (await hasInstagramConfirmed(userId)) && await isMember(CHANNEL_ID, userId) && await isMember(GROUP_ID, userId); }
 async function showAccessGate(chatId: number, userId: number) { const instagramDone = await hasInstagramConfirmed(userId); const channelJoined = await isMember(CHANNEL_ID, userId); const groupJoined = await isMember(GROUP_ID, userId); const rows: any[] = [[{ text: "📢 Join Vibble TV Channel", url: CHANNEL_URL }], [{ text: "👥 Join Vibble TV Group", url: GROUP_URL }], [{ text: "📸 Follow @vibble.tv", url: INSTAGRAM_URL }], [{ text: instagramDone ? "✅ Instagram confirmed" : "I've Followed – Done", callback_data: "access:instagram_done" }], [{ text: "🔄 I've joined – Check again", callback_data: "access:check" }]]; const status = `Channel: ${channelJoined ? "✅ Joined" : "❌ Not joined"}\nGroup: ${groupJoined ? "✅ Joined" : "❌ Not joined"}\nInstagram: ${instagramDone ? "✅ Confirmed" : "⏳ Awaiting confirmation"}`; await send(chatId, `🔐 <b>Join the Vibble TV community to continue</b>\n\nPlease complete these steps:\n1. Join our Telegram channel.\n2. Join our Telegram group.\n3. Follow us on Instagram, then tap <b>I've Followed – Done</b>.\n\n${status}\n\nOnce you've completed the steps, tap <b>I've joined – Check again</b>.`, { inline_keyboard: rows }); }
@@ -117,6 +117,16 @@ export default async function handler(req: any, res: any) {
     const message = update.message;
     const callback = update.callback_query;
     const origin = process.env.VIBBLE_API_BASE || `${req.headers["x-forwarded-proto"] || "https"}://${req.headers["x-forwarded-host"] || req.headers.host}`;
+    if (message?.new_chat_members?.length) {
+      const joinedUsers = message.new_chat_members.filter((member) => member.id !== Number(process.env.TELEGRAM_BOT_ID || "0"));
+      if (joinedUsers.length) {
+        const names = joinedUsers.map((member) => member.first_name || "there").map(escapeHtml);
+        const welcome = await telegram("sendMessage", { chat_id: message.chat.id, text: `👋 Welcome ${names.join(", ")} to the Vibble TV community! 💜`, disable_web_page_preview: true }) as { message_id: number };
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        await deleteMessage(message.chat.id, welcome.message_id);
+      }
+      return res.status(200).json({ ok: true });
+    }
     const actor = callback?.from || message?.from;
     const actorChatId = callback?.message?.chat.id || message?.chat.id;
     if (actor && actorChatId && actor.id !== ADMIN_ID && !(await hasAccess(actor.id))) {
